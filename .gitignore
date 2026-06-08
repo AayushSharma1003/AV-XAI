@@ -1,0 +1,41 @@
+# Data — never committed (we re-download/regenerate)
+data/
+*.mp4
+*.wav
+*.flac
+*.npy
+*.npz
+
+# Model checkpoints — too big for git
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# Logs and metrics
+logs/
+runs/
+wandb/
+tensorboard/
+
+# Credentials — NEVER commit
+kaggle.json
+.kaggle/
+*.env
+*.key
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.pytest_cache/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

@@ -1,0 +1,46 @@
+# ============================================================
+# AV-XAI Project Dependencies
+# Installed into conda env 'df' via setup.bat
+# PyTorch is installed separately in setup.bat with CUDA support
+# ============================================================
+
+# Core numerics
+numpy<2.0
+pandas
+scikit-learn
+scipy
+
+# Progress / utilities
+tqdm
+pyyaml
+
+# Video / audio processing
+opencv-python
+facenet-pytorch
+av
+librosa
+soundfile
+ffmpeg-python
+pillow
+
+# ML libraries (needed later for training; install now)
+transformers>=4.40.0
+accelerate>=0.30.0
+einops
+timm
+
+# Explainability (needed later)
+captum
+
+# Dataset download
+kaggle
+
+# Jupyter
+jupyter
+ipykernel
+notebook
+ipywidgets
+
+# Visualization
+matplotlib
+seaborn
