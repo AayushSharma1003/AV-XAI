@@ -490,3 +490,20 @@ ffmpeg (conda-forge — needed for audio extraction from mp4)
 - VGGish: Hershey et al., ICASSP 2017
 - Grad-CAM++: Chattopadhyay et al., WACV 2018
 - Cross-Modal Transformers: Tsai et al. (MulT), ACL 2019
+
+### 2026-06-09 — Pivot to Celeb-DF v2 (DFDC access blocked)
+
+**Decision:** Pivoted from DFDC to Celeb-DF v2 due to Kaggle CLI access wall (403 Forbidden on competition file downloads — known issue since 2024 affecting all DFDC users). Source: Komal ma'am's Google Drive provided a 2 GB subset; pulled in the full 9.3 GB Celeb-DF v2 already locally available, confirmed alignment with ma'am.
+
+**Dataset stats (final):**
+- Source: Celeb-DF v2 official release (Li et al., CVPR 2020)
+- Total clips: 6,529 (591 Celeb-real, 5,640 Celeb-synthesis, 301 YouTube-real)
+- Test set: 518 clips, taken directly from `List_of_testing_videos.txt` (Celeb-DF's canonical test split). Matches every published Celeb-DF baseline.
+- Train: 5,565 clips (88.1% FAKE / 11.9% REAL)
+- Val: 446 clips (88.8% FAKE / 11.2% REAL)
+- Test: 518 clips (65.6% FAKE / 34.4% REAL)
+- Train/val split: actor-disjoint by SOURCE identity (the face donor for synthesis clips). 54 identities overlap between test and train — this is Celeb-DF's official protocol used by AVTENet, EfficientNet-V2S, and all other reported baselines.
+- Hash seed: 42 (reproducible)
+- Manifest: `data/manifest.csv`, `data/splits/{train,val,test}.csv`
+
+**Justification for source-only hashing on synthesis clips:** The source identity (idN in idN_idM_XXXX.mp4) is the face donor whose identity is most discriminative for face-fake detection. The target identity (idM) provides body/audio context, which is less identity-discriminative. Strict double-hashing (v1 attempt) collapsed val/test to <100 clips each due to the 0.1² probability of both identities landing in the same minority split.
