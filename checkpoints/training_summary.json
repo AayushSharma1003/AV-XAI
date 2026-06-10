@@ -1,0 +1,29 @@
+{
+  "best_epoch": 8,
+  "best_val_bacc_4c": 0.7773913043478261,
+  "total_epochs_run": 8,
+  "total_training_hours": 6.089048306875759,
+  "final_tau": 0.07651909440755844,
+  "config": {
+    "lr_backbone": 1e-05,
+    "lr_head": 0.0005,
+    "weight_decay": 0.01,
+    "warmup_steps": 500,
+    "max_epochs": 8,
+    "patience": 3,
+    "micro_batch": 4,
+    "grad_accum": 8,
+    "grad_clip": 1.0,
+    "label_smoothing": 0.1,
+    "audio_mixup_alpha": 0.2,
+    "audio_mixup_prob": 0.5,
+    "tau_init": 0.07,
+    "tau_min": 0.01,
+    "tau_max": 0.5,
+    "contrastive_weight": 0.3,
+    "aux_loss_weight": 0.3,
+    "num_workers": 0,
+    "log_every_steps": 50,
+    "save_dir": "C:\\Users\\Komal-Sch\\Desktop\\AV-XAI\\checkpoints"
+  }
+}
