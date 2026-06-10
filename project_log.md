@@ -1,168 +1,220 @@
-# Multimodal Deepfake Detection — Project Log
+# AV-XAI — Project Log
 
-**Project:** Cross-Modal Transformer for Audio-Visual Deepfake Detection with Explainability  
-**Authors:** Komal Yadav (PhD Scholar, Lead), Aayush Sharma (Associate Research Intern)  
-**Institution:** Bennett University  
-**Target:** Conference paper (short-form, code + results)  
-**Started:** May 2026  
-**Last Updated:** 02 June 2026
+**Project:** AV-XAI: An Explainable Multimodal Framework for Robust Deepfake Detection Using Video and Audio Transformers
+**Authors:** Komal Yadav (PhD Scholar, Lead), Aditya Bhardwaj (PhD Scholar, Co-supervisor), Aayush Sharma (Associate Research Intern)
+**Institution:** Bennett University
+**Target:** Elsevier journal (Information Fusion or Pattern Recognition)
+**Started:** May 2026
+**Last Updated:** 10 June 2026
+
+> **Note on project history:** This project began as a conference-paper submission (EfficientNet-B0 + VGGish, 5K LAV-DF sample). That phase completed successfully (Phase 1 fully done, preprocessing verified). The project was then upgraded to journal-level scope with a new architecture. This log covers the full history; §2 onwards reflects the current journal-target architecture.
 
 ---
 
 ## Table of Contents
 1. [Project Overview](#1-project-overview)
-2. [Architecture](#2-architecture)
-3. [Design Decisions & Rationale](#3-design-decisions--rationale)
-4. [Dataset](#4-dataset)
-5. [Preprocessing Pipeline](#5-preprocessing-pipeline)
-6. [Training Plan](#6-training-plan)
-7. [Experiment Plan & Ablations](#7-experiment-plan--ablations)
-8. [Environment & Infrastructure](#8-environment--infrastructure)
-9. [Progress Tracker](#9-progress-tracker)
-10. [Key Findings](#10-key-findings)
-11. [Issues & Solutions Log](#11-issues--solutions-log)
-12. [Meeting Notes](#12-meeting-notes)
-13. [References](#13-references)
+2. [Architecture — Current (Journal)](#2-architecture--current-journal)
+3. [Architecture — Previous (Conference, Archived)](#3-architecture--previous-conference-archived)
+4. [Design Decisions & Rationale](#4-design-decisions--rationale)
+5. [Dataset](#5-dataset)
+6. [Preprocessing Pipeline](#6-preprocessing-pipeline)
+7. [Training Plan](#7-training-plan)
+8. [Experiment Plan & Ablations](#8-experiment-plan--ablations)
+9. [Environment & Infrastructure](#9-environment--infrastructure)
+10. [Progress Tracker](#10-progress-tracker)
+11. [Key Findings](#11-key-findings)
+12. [Issues & Solutions Log](#12-issues--solutions-log)
+13. [Session Notes](#13-session-notes)
+14. [References](#14-references)
 
 ---
 
 ## 1. Project Overview
 
-Komal ma'am had an existing paper on explainable multimodal deepfake detection. A similar paper was found to be already published. Her senior approved continuing as a conference paper since those are shorter. We are implementing the code from scratch, running experiments, and producing results.
+**Core idea:** Detect audio-visual deepfakes by jointly encoding video (face crops) with ViViT-B/16 and audio (raw waveform) with WavLM-Large, fusing them through a three-level hierarchical fusion module, and enforcing cross-modal consistency via contrastive loss. A five-model adversarial ensemble and multi-technique explainability (Grad-CAM++, SHAP, LRP) complete the system.
 
-**Core Idea:** Detect deepfakes by jointly analyzing video (face) and audio (speech) using separate encoders, then fusing them via cross-modal attention. The cross-modal transformer captures audio-visual mismatches (e.g., lip-sync errors, speech-onset vs lip-movement timing) that single-modality detectors miss.
-
-**Explainability:** Post-training Grad-CAM++ on both branches + cross-modal attention weight visualization to show which audio-video pairs the model linked.
+**What's novel vs. the conference version:**
+- Transformer-native encoders (ViViT, WavLM) replace CNN backbones (EfficientNet-B0, VGGish)
+- Cross-modal contrastive consistency loss as an explicit training objective (not just fusion)
+- Three-level hierarchical fusion (feature + decision + ensemble) vs single cross-modal attention
+- Adversarial robustness via 5-variant ensemble with different augmentation policies
+- Multi-technique XAI: Grad-CAM++, SHAP, and LRP jointly
 
 ---
 
-## 2. Architecture
+## 2. Architecture — Current (Journal)
 
-### 2.1 Model Pipeline
+### 2.1 Pipeline
 
 ```
+INPUT: raw mp4 clip
+
 VIDEO BRANCH:
-  Video frames (16, 3, 224, 224)
-  → EfficientNet-B0 (pretrained ImageNet, partially fine-tuned, 1280-d output)
-  → Linear projection (1280 → 256) + positional encoding
-  → Transformer encoder (2 layers, 4 heads, from scratch)
-  → Visual feature sequence (16, 256)
+  MTCNN face detection → 16 crops @ 224×224 (uint8, stored)
+  → ViViT-B/16 (Kinetics-400 pretrained, full fine-tune)
+  → [CLS] token → 768-d video embedding  (vt)
 
 AUDIO BRANCH:
-  Mel-spectrogram (1, 128, T)
-  → VGGish (pretrained AudioSet, partially fine-tuned, 128-d output)
-  → Linear projection (128 → 256) + positional encoding
-  → Transformer encoder (2 layers, 4 heads, from scratch)
-  → Audio feature sequence (T', 256)
+  PyAV decode → 10s mono @ 16kHz → 160,000 samples (float32, stored)
+  → WavLM-Large (LibriSpeech pretrained, full fine-tune)
+  → Mean-pool hidden states → 1024-d audio embedding  (at)
 
-FUSION:
-  → Cross-modal Transformer (2-3 layers, bidirectional cross-attention)
-    - Visual queries attend to Audio keys/values
-    - Audio queries attend to Visual keys/values
-  → Mean pool each branch + concatenate → 512-d vector
-  → MLP classifier → Real/Fake (binary) or 4-class
+CROSS-MODAL CONSISTENCY:
+  Project vt → 256-d,  at → 256-d (shared space)
+  Contrastive loss: paired (vt, at) pulled together; shuffled (vt, a't) pushed apart
+  Temperature τ = 0.07
 
-EXPLAINABILITY (post-training, inference-time only):
-  → Grad-CAM++ on EfficientNet-B0 (visual saliency heatmaps on face regions)
-  → Grad-CAM++ on VGGish (audio saliency on mel-spectrogram time-frequency regions)
-  → Cross-modal attention weight visualization (which audio-video pairs the model linked)
+HIERARCHICAL FUSION (3 levels):
+  Level 1 — Feature: cross-attention (4 heads, d_model=768) between vt and at
+  Level 2 — Decision: per-modality classifiers (video head, audio head)
+  Level 3 — Ensemble: soft vote across feature-level, video-only, audio-only predictions
+
+ADVERSARIAL ENSEMBLE (5 variants):
+  Policy 1: heavy JPEG compression augmentation
+  Policy 2: light JPEG compression
+  Policy 3: Gaussian noise
+  Policy 4: temporal resampling
+  Policy 5: mixed
+
+EXPLAINABILITY (post-training, inference-time):
+  Grad-CAM++ on ViViT (spatial saliency on face crops)
+  SHAP on WavLM (audio feature attribution)
+  LRP (Layer-wise Relevance Propagation) on fusion module
+
+OUTPUT:
+  logits_4class [B, 4]   (real / visual_modified / audio_modified / both_modified)
+  logits_binary [B, 2]
+  v_embed [B, 256]       (for contrastive loss)
+  a_embed [B, 256]       (for contrastive loss)
 ```
 
-### 2.2 Tensor Shapes Through the Pipeline
+### 2.2 Tensor Shapes
 
 | Stage | Shape | Notes |
-|-------|-------|-------|
-| Raw video input | (B, 16, 3, 224, 224) | 16 frames, ImageNet normalized |
-| After EfficientNet-B0 | (B, 16, 1280) | Per-frame features |
-| After video projection | (B, 16, 256) | + positional encoding |
-| After video transformer | (B, 16, 256) | Self-attended visual features |
-| Raw audio input | (B, 1, 128, 94) | Log mel-spectrogram (T=94 confirmed) |
-| After VGGish | (B, T', 128) | Per-segment features |
-| After audio projection | (B, T', 256) | + positional encoding |
-| After audio transformer | (B, T', 256) | Self-attended audio features |
-| After cross-modal fusion | (B, 512) | Mean-pooled + concatenated |
-| After classifier | (B, num_classes) | Binary or 4-class logits |
+|---|---|---|
+| Stored face crops | [16, 3, 224, 224] uint8 | Kinetics-400 normalized at training time |
+| ViViT output (CLS) | [B, 768] | |
+| Stored audio | [160000] float32 | 10s @ 16kHz |
+| WavLM output (mean-pool) | [B, 1024] | |
+| After consistency projection | [B, 256] each | Shared space for contrastive loss |
+| Feature-level fusion output | [B, 768] | Cross-attention output |
+| Final logits | [B, 4] + [B, 2] | 4-class primary, binary secondary |
 
-### 2.3 Parameter Count Estimates
+### 2.3 Loss Function
 
-| Component | Params | Trainable? |
-|-----------|--------|------------|
-| EfficientNet-B0 | ~5.3M | Partial (last 2 blocks + head) |
-| VGGish | ~62M | Partial (last layers) |
-| Video projection + PE | ~330K | Yes |
-| Audio projection + PE | ~33K | Yes |
-| Video transformer encoder (2L) | ~1.1M | Yes (from scratch) |
-| Audio transformer encoder (2L) | ~1.1M | Yes (from scratch) |
-| Cross-modal transformer (2L) | ~1.1M | Yes (from scratch) |
-| MLP classifier | ~130K | Yes |
-| **Total** | **~71M** | **~4M trainable** |
+```
+L = L_det + 0.3·L_cons + 0.01·L_reg
+
+L_det  = CrossEntropyLoss (4-class, primary)
+L_cons = contrastive loss on (v_embed, a_embed) pairs, τ=0.07
+L_reg  = L2 regularization on non-pretrained params
+```
+
+### 2.4 Training Hyperparameters
+
+| Hyperparameter | Value |
+|---|---|
+| Optimizer | AdamW |
+| Backbone LR (ViViT + WavLM) | 1e-5 |
+| Head LR (fusion, classifiers) | 5e-4 |
+| Weight decay | 0.01 |
+| Scheduler | Cosine with 500 warmup steps |
+| Max epochs | 8 (early stop patience 2) |
+| Micro-batch | 4 |
+| Gradient accumulation | 8 (effective batch 32) |
+| Mixed precision | bf16 |
+| Gradient checkpointing | On both backbones |
+| Grad clip max-norm | 1.0 |
+
+### 2.5 Parameter Count (Estimated)
+
+| Component | Params | Trainable |
+|---|---|---|
+| ViViT-B/16 | ~86M | All (full fine-tune) |
+| WavLM-Large | ~316M | All (full fine-tune) |
+| Consistency projection heads | ~400K | Yes |
+| Cross-attention fusion (4-head) | ~2.4M | Yes |
+| Per-modality classifier heads | ~800K | Yes |
+| **Total** | **~405M** | **~405M** |
+
+Fits on RTX A6000 (48 GB) with bf16 + gradient checkpointing. Estimated VRAM: ~38 GB at micro-batch 4.
 
 ---
 
-## 3. Design Decisions & Rationale
+## 3. Architecture — Previous (Conference, Archived)
 
-### Backbone Choices
+Kept for reference; not used in current experiments.
 
-| Decision | Choice | Alternative | Rationale |
-|----------|--------|-------------|-----------|
-| Video encoder | EfficientNet-B0 | ResNet-50 | 5.3M vs 25.6M params; better efficiency for GPU training |
-| Audio encoder | VGGish | Wav2Vec2 | Faithful to paper's "1D CNN" description; simpler; pretrained on AudioSet |
-| Face detection | MTCNN | RetinaFace | Standard, fast, good alignment; works well with facenet-pytorch |
+```
+VIDEO: EfficientNet-B0 (ImageNet pretrained, partial fine-tune) → 1280-d → projection 256-d
+       + Transformer encoder (2L, 4H, from scratch) → (16, 256) sequence
 
-### Architecture Choices
+AUDIO: VGGish (AudioSet pretrained, partial fine-tune) → 128-d → projection 256-d
+       + Transformer encoder (2L, 4H, from scratch) → (T', 256) sequence
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| d_model | 256 | Lightweight, fits alongside pretrained backbones on GPU |
-| n_heads | 4 | 256/4 = 64-d per head, sufficient for short sequences |
-| dim_feedforward | 512 | 2x d_model, standard ratio |
-| Encoder layers | 2 | Sequence is only 16 tokens; 1 layer = full connectivity, 2 = second-order interactions, diminishing returns beyond |
-| Cross-modal layers | 2-3 | Where the novelty lives; more capacity here |
-| Fusion output | Mean pool + concat | Simple, effective for conference paper |
-| Cross-attention | Bidirectional | V→A catches lip-sync; A→V catches speech-onset mismatches |
+FUSION: Cross-modal Transformer (2-3L, bidirectional cross-attention) → 512-d → MLP classifier
 
-### Preprocessing Choices
+XAI: Grad-CAM++ on both branches + cross-modal attention weights
+```
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Frames per video | 16 | Standard (TimeSformer, ViViT); O(n²) attention is cheap at 16 |
-| Frame size | 224×224 | EfficientNet-B0 pretrained input size |
-| Audio sample rate | 16 kHz | Human speech < 8 kHz (Nyquist); VGGish pretrained rate |
-| Audio duration | 3 seconds | Enough for sentence-level prosody |
-| Mel bins | 128 | Standard, matches VGGish |
-| n_fft / hop_length | 1024 / 512 | Standard config matching VGGish pretraining |
-| Storage dtype | float16 | Halves disk usage; cast to float32 at training time |
-
-### Sampling Decision
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Sample size | 5,000 / 136K | Full dataset preprocessing exceeded 400 GB disk; 5K is sufficient for conference paper with pretrained encoders; stratified to maintain class/split proportions |
+Results on LAV-DF 5K subsample: best config BAcc ~0.71, AUC ~0.90 (video dominance; audio near-useless with mel-spectrogram approach).
 
 ---
 
-## 4. Dataset
+## 4. Design Decisions & Rationale
 
-### 4.1 LAV-DF (Localized Audio-Visual Deepfake)
+### Encoder choice
+| Decision | Choice | Rationale |
+|---|---|---|
+| Video encoder | ViViT-B/16 | Native spatiotemporal attention; Kinetics-400 pretrained; directly models inter-frame relationships that CNNs miss |
+| Audio encoder | WavLM-Large | SOTA self-supervised audio; pretrained on speech (matches deepfake audio domain); raw waveform input avoids mel-spectrogram information loss |
+| Face detection | MTCNN | Explicit paper citation (§4.2); required for baseline comparability with BA-TFD / BA-TFD+ |
+| No LoRA | Full fine-tune | Komal ma'am direction; journal-level compute budget on A6000 supports it |
 
-- Purpose-built for audio-visual deepfake detection
-- Videos with manipulated audio, video, or both
-- ~25.6 GB total (as .tar), available on HuggingFace (ControlNet/LAV-DF) — gated dataset, requires HuggingFace login and access approval
-- NO separate audio files — audio embedded in .mp4, extracted with ffmpeg subprocess
+### Dataset choice journey
+1. **DFDC** → 403 Forbidden on Kaggle (known 2024 issue, all users affected). Abandoned.
+2. **Celeb-DF v2** → Zero audio streams in all clips (Li et al. strip YouTube audio, likely copyright). Abandoned.
+3. **LAV-DF** ✅ → Audio+video by design; 4-class labels align with cross-modal consistency loss; prior project experience; official actor-disjoint splits usable directly.
 
-### 4.2 Directory Structure
+### Split strategy
+Used LAV-DF's official train/dev/test splits (identity-disjoint via VoxCeleb2 inheritance) rather than custom 80/10/10 re-hash. Reason: direct comparability to BA-TFD / BA-TFD+ baselines in the original LAV-DF paper (Cai et al. CVIU 2023). Subsampled to 30K balanced across all four classes.
 
-```
-LAV-DF/LAV-DF/LAV-DF/          ← NOTE: triple nesting after HuggingFace download + tar extraction
-├── metadata.json               ← ALL labels and metadata (131.2 MB)
-├── metadata.min.json           ← minified version (32.3 MB)
-├── README.md
-├── train/                      ← 78,703 .mp4 files
-├── dev/                        ← 31,501 .mp4 files (validation split, NOT called "val")
-└── test/                       ← 26,100 .mp4 files
-```
+### Preprocessing storage
+Per-clip `.pt` files (not HDF5) for simplicity, resumability, and debuggability. Faces stored as uint8 (4× smaller than float32); Kinetics-400 normalization applied at training time in the DataLoader. Audio stored as raw float32 waveform (not mel-spectrogram) to match WavLM-Large's expected input.
 
-### 4.3 metadata.json Fields
+---
+
+## 5. Dataset
+
+### 5.1 LAV-DF (Current — Journal Phase)
+
+- **Source:** HuggingFace `ControlNet/LAV-DF` (gated, requires account + access approval)
+- **Total:** 136,304 clips (train 78,703 / dev 31,501 / test 26,100)
+- **Audio:** AAC-encoded, 16 kHz mono, embedded in mp4 — confirmed working via PyAV
+- **Labels:** derived from `modify_video` + `modify_audio` boolean fields (no `modify_type` field in v1 metadata)
+
+### 5.2 Full Dataset Distribution (136,304 clips)
+
+| Split | Real | Visual Modified | Audio Modified | Both Modified | Total |
+|---|---|---|---|---|---|
+| Train | 21,254 (27.0%) | 19,271 (24.5%) | 19,088 (24.3%) | 19,090 (24.3%) | 78,703 |
+| Dev | 8,271 (26.3%) | 7,820 (24.8%) | 7,709 (24.5%) | 7,701 (24.4%) | 31,501 |
+| Test | 6,906 (26.5%) | 6,452 (24.7%) | 6,373 (24.4%) | 6,369 (24.4%) | 26,100 |
+
+Near-perfectly balanced 4-class. Binary split: 26.7% Real / 73.3% Fake.
+
+### 5.3 Subsample Used (30,000 clips — journal experiments)
+
+| Split | Per class | Total | Ratio |
+|---|---|---|---|
+| Train | 4,350 | 17,400 | 58% |
+| Val (LAV-DF "dev") | 1,725 | 6,900 | 23% |
+| Test | 1,425 | 5,700 | 19% |
+| **Total** | **7,500** | **30,000** | |
+
+Balance spread: **0.0%** (perfectly balanced within every split). All target cells filled — no class was undersized.
+
+### 5.4 Metadata Schema (actual v1 fields)
 
 ```json
 {
@@ -180,330 +232,337 @@ LAV-DF/LAV-DF/LAV-DF/          ← NOTE: triple nesting after HuggingFace downlo
 }
 ```
 
-### 4.4 Label Mapping
+Note: `original` is `null` for real clips; points to source real clip for all fake classes. No actor/speaker ID field — actor-disjointness guaranteed by official splits.
 
-| modify_video | modify_audio | 4-class Label | Binary Label |
-|:---:|:---:|:---:|:---:|
-| False | False | 0 (Real) | 0 (Real) |
-| True | False | 1 (Fake-Video) | 1 (Fake) |
-| False | True | 2 (Fake-Audio) | 1 (Fake) |
-| True | True | 3 (Fake-Both) | 1 (Fake) |
+### 5.5 Manifest Schema (`data/manifest.csv`)
 
-### 4.5 Class Distribution (Full Dataset — 136,304 total)
-
-| Split | Real | Fake-Video | Fake-Audio | Fake-Both | Total |
-|-------|------|------------|------------|-----------|-------|
-| Train | 21,254 (27.0%) | 19,271 (24.5%) | 19,088 (24.3%) | 19,090 (24.3%) | 78,703 |
-| Dev | 8,271 (26.3%) | 7,820 (24.8%) | 7,709 (24.5%) | 7,701 (24.4%) | 31,501 |
-| Test | 6,906 (26.5%) | 6,452 (24.7%) | 6,373 (24.4%) | 6,369 (24.4%) | 26,100 |
-| **Total** | **36,431 (26.7%)** | **33,543 (24.6%)** | **33,170 (24.3%)** | **33,160 (24.3%)** | **136,304** |
-
-**Observation:** Near-perfectly balanced 4-class dataset. Binary split is 26.7% Real / 73.3% Fake (expected: 3 fake types vs 1 real type). Will use weighted CrossEntropyLoss or balanced accuracy to handle binary imbalance.
-
-### 4.6 Sampled Dataset (5,000 total, stratified)
-
-| Split | Real | Fake-Video | Fake-Audio | Fake-Both | Total |
-|-------|------|------------|------------|-----------|-------|
-| Train | 780 (27.0%) | 707 (24.5%) | 700 (24.2%) | 700 (24.2%) | 2,887 |
-| Dev | 303 (26.2%) | 287 (24.8%) | 283 (24.5%) | 282 (24.4%) | 1,155 |
-| Test | 253 (26.4%) | 237 (24.7%) | 234 (24.4%) | 234 (24.4%) | 958 |
-| **Total** | **1,336 (26.7%)** | **1,231 (24.6%)** | **1,217 (24.3%)** | **1,216 (24.3%)** | **5,000** |
-
-Average duration: 8.60 seconds. Total duration of full dataset: 325.5 hours.
+| column | type | meaning |
+|---|---|---|
+| `file` | str | relative path, e.g. `train/000001.mp4` |
+| `split` | str | `train` / `val` / `test` (LAV-DF's `dev` → `val`) |
+| `modify_type` | str | derived: `real` / `visual_modified` / `audio_modified` / `both_modified` |
+| `label_4class` | int | 0=real, 1=visual, 2=audio, 3=both |
+| `label_binary` | int | 0=real, 1=any-fake |
+| `original` | str | source clip path (null for real) |
+| `fake_periods` | str | JSON `[[start_s, end_s], ...]` |
+| `n_fakes` | int | count of fake segments |
+| `duration` | float | clip length in seconds |
+| `video_frames` | int | |
+| `audio_frames` | int | |
 
 ---
 
-## 5. Preprocessing Pipeline
+## 6. Preprocessing Pipeline
 
-### 5.1 Video Preprocessing
-
-```
-For each sampled .mp4:
-  1. Load video with OpenCV
-  2. Uniformly sample 16 frames
-  3. MTCNN face detection + crop + align (GPU-accelerated)
-     - Fallback 1: nearest good bounding box if frame fails
-     - Fallback 2: center-crop if ALL frames fail
-  4. Resize to 224×224
-  5. Normalize with ImageNet mean/std
-  6. Save as float16 .pt → shape (16, 3, 224, 224)
-```
-
-**Actual results (02 June 2026):**
-- Processed: 5,000 / 5,000 (0 failures)
-- Time: 12.4 min on RTX A6000 (6.7 videos/sec)
-- Tensor shape: (16, 3, 224, 224) confirmed
-- File size per tensor: 4.59 MB
-- Total disk: 22.4 GB
-
-### 5.2 Audio Preprocessing
+### 6.1 Video — Face Crops
 
 ```
-For each sampled .mp4:
-  1. Extract audio from .mp4 using ffmpeg subprocess (NOT torchaudio.load — no backends on Windows)
-  2. Convert to mono, resample to 16 kHz (done by ffmpeg)
-  3. Load wav with soundfile
-  4. Pad or center-crop to 3 seconds (48000 samples)
-  5. Compute mel-spectrogram (n_mels=128, n_fft=1024, hop=512)
-  6. Log scaling: log(mel + 1e-9)
-  7. Save as float16 .pt → shape (1, 128, 94)
+For each clip in manifest:
+  1. Decode all frames via PyAV
+  2. Uniformly sample 16 frame indices across clip duration
+  3. Run MTCNN per frame (single-image mode — NOT batch, see §12 issue #16)
+     - image_size=224, margin=20, keep_all=False, selection_method="probability"
+     - Fallback: center-crop + resize to 224×224 if no face detected
+  4. Stack → [16, 3, 224, 224] uint8
+  5. Save in entry dict (with audio below) as .pt
 ```
 
-**Actual results (02 June 2026):**
-- Processed: 5,000 / 5,000 (0 failures)
-- Time: 15.6 min (5.35 videos/sec)
-- Tensor shape: (1, 128, 94) confirmed — T=94 time steps for 3-sec audio
-- File size per tensor: 24.7 KB
-- Total disk: ~120 MB
+**Results (10 June 2026, RTX A6000, 30K clips):**
+- Success: 29,846 / 30,000 on first pass
+- Failures recovered: 154 (all MTCNN batch-shape errors, fixed by switching to per-frame mode)
+- **Final: 30,000 / 30,000, 0 unrecoverable failures**
+- MTCNN detection rate: **16/16 frames on 100% of 3,000 sampled clips** (perfect)
+- No fallback center-crops needed on any sampled clip
 
-### 5.3 Actual Disk Usage (5K videos, float16)
+### 6.2 Audio — Raw Waveform
 
-| Component | Estimated | Actual |
-|-----------|-----------|--------|
-| Video tensors | ~22 GB | 22.4 GB |
-| Audio tensors | ~0.25 GB | ~0.12 GB |
-| Raw dataset (.tar + extracted) | ~25.6 GB | ~51 GB (tar not deleted yet) |
-| **Total** | **~48 GB** | **~74 GB (can reclaim ~25 GB by deleting .tar)** |
+```
+For each clip in manifest:
+  1. Decode audio via PyAV directly (NOT librosa — librosa can't handle AAC on Windows)
+  2. Mean-fold stereo channels → mono float32
+  3. Normalize PCM if integer range detected (divide by 32768.0)
+  4. Pad with zeros (right) if shorter than 10s; center-crop if longer
+  5. Result: [160,000] float32 (10s @ 16kHz)
+  6. Saved together with faces in the same .pt file
+```
+
+**Results (10 June 2026):**
+- has_audio=True: 100% of 30,000 clips (LAV-DF guarantees audio)
+- Audio RMS range: 0.000003 – 0.18 (healthy speech range; one near-silent clip is a genuine silent fake, not a bug)
+- librosa failure mode: PySoundFile fails → audioread fallback → both fail on Windows AAC. Fixed by PyAV.
+
+### 6.3 Output Format
+
+One `.pt` file per clip at `data/preprocessed/{split}/{stem}.pt`:
+
+```python
+{
+    'faces':        torch.uint8  [16, 3, 224, 224],
+    'audio':        torch.float32 [160000],
+    'label_4class': int (0–3),
+    'label_binary': int (0/1),
+    'modify_type':  str,
+    'split':        str,
+    'file':         str,
+    'fake_periods': list,
+    'duration':     float,
+    'face_stats':   {'detected': int, 'fallback_center_crop': int, 'total_frames': 16, 'source_frame_count': int},
+    'has_audio':    bool,
+}
+```
+
+### 6.4 Disk Usage (actual)
+
+| Split | Files | Size |
+|---|---|---|
+| Train | 17,400 | 52.80 GB |
+| Val | 6,900 | 20.94 GB |
+| Test | 5,700 | 17.31 GB |
+| **Total** | **30,000** | **91.05 GB** |
+
+~3 MB per clip average (faces dominate: ~2.4 MB uint8; audio: ~640 KB float32).
 
 ---
 
-## 6. Training Plan
+## 7. Training Plan
+
+### 7.1 Hyperparameters
 
 | Hyperparameter | Value |
-|----------------|-------|
+|---|---|
 | Optimizer | AdamW |
-| LR (pretrained backbones) | 1e-5 |
-| LR (new layers) | 1e-4 |
-| Scheduler | Cosine annealing |
-| Weight decay | 1e-2 |
-| Mixed precision | torch.cuda.amp |
-| Batch size | 8–16 (can go to 32 on A6000) |
-| Epochs | 20–30 |
-| Checkpoint criterion | Best validation AUC |
-| Dropout | 0.1 |
-| Binary class weights | [3.0, 1.0] (upweight Real to handle 27/73 imbalance) |
+| Backbone LR | 1e-5 |
+| Head LR | 5e-4 |
+| Weight decay | 0.01 |
+| Scheduler | Cosine + 500 warmup steps |
+| Max epochs | 8 (early stop patience 2) |
+| Micro-batch | 4 |
+| Gradient accumulation steps | 8 |
+| Effective batch size | 32 |
+| Mixed precision | bf16 |
+| Gradient checkpointing | Both backbones |
+| Grad clip | max_norm=1.0 |
 
-### Evaluation Metrics
-- Balanced accuracy (primary — handles class imbalance)
-- Precision / Recall / F1 (per class)
+### 7.2 Loss
+
+`L = L_det + 0.3·L_cons + 0.01·L_reg`
+
+- `L_det`: 4-class CrossEntropy (primary task)
+- `L_cons`: cross-modal contrastive (τ=0.07), in-batch negatives
+- `L_reg`: L2 on non-pretrained params
+
+### 7.3 Evaluation Metrics
+
+- Balanced accuracy (primary — handles binary 27/73 imbalance)
 - AUC-ROC
+- Per-class F1, Precision, Recall
 - Confusion matrix
 
 ---
 
-## 7. Experiment Plan & Ablations
+## 8. Experiment Plan & Ablations
 
-### 7.1 Core Experiments
+### 8.1 Core Experiments
 
 | # | Experiment | Status |
-|---|-----------|--------|
-| E1 | Binary classification (Real vs Fake) | ❌ Pending |
-| E2 | 4-class classification | ❌ Pending |
-| E3 | Cross-dataset generalization (train LAV-DF, test FakeAVCeleb) | ❌ Pending |
+|---|---|---|
+| E1 | 4-class classification (main result) | ❌ Pending |
+| E2 | Binary classification | ❌ Pending |
+| E3 | Adversarial ensemble (5-variant) | ❌ Pending |
+| E4 | Cross-dataset generalization | ❌ Pending |
 
-### 7.2 Planned Ablations
+### 8.2 Planned Ablations
 
 | # | Ablation | Purpose |
-|---|---------|---------|
-| A1 | Transformer depth: 1, 2, 3, 4 layers | Find optimal depth for short sequences |
-| A2 | Cross-modal vs simple concatenation fusion | Justify cross-attention novelty |
-| A3 | Bidirectional vs unidirectional cross-attention | Justify both directions |
-| A4 | Video-only vs Audio-only vs Multimodal | Show multimodal benefit |
-| A5 | With vs without Grad-CAM++ explainability | Qualitative comparison |
+|---|---|---|
+| A1 | Video-only vs Audio-only vs Full multimodal | Justify multimodal benefit |
+| A2 | With vs without cross-modal consistency loss | Justify L_cons |
+| A3 | Feature-level vs Decision-level vs Ensemble fusion | Justify hierarchical fusion |
+| A4 | With vs without adversarial ensemble | Justify robustness contribution |
+| A5 | Grad-CAM++ qualitative samples | XAI visualization for paper figures |
 
-### 7.3 Results Table Template
+### 8.3 Baselines to Beat
 
-| Model Variant | Accuracy | Bal. Acc | AUC | Precision | Recall | F1 |
-|--------------|----------|----------|-----|-----------|--------|-----|
-| Full model (proposed) | | | | | | |
-| Video-only | | | | | | |
-| Audio-only | | | | | | |
-| Concat fusion (no cross-attn) | | | | | | |
-| Unidirectional cross-attn | | | | | | |
-| 1 encoder layer | | | | | | |
-| 3 encoder layers | | | | | | |
-| 4 encoder layers | | | | | | |
+| Model | BAcc (LAV-DF) | Source |
+|---|---|---|
+| BA-TFD | ~0.82 | Cai et al. CVIU 2023 (official) |
+| BA-TFD+ | ~0.85 | Cai et al. CVIU 2023 (official) |
+| AV-XAI (ours) | TBD | |
 
 ---
 
-## 8. Environment & Infrastructure
+## 9. Environment & Infrastructure
 
-### 8.1 Lab Machine (Primary — Preprocessing + Training)
+### 9.1 Lab Machine (Primary — All heavy compute)
+
 - **Location:** Bennett University AR/VR Lab (remote via AnyDesk)
-- **OS:** Windows 10
+- **OS:** Windows 10/11
 - **GPU:** NVIDIA RTX A6000 (48 GB VRAM)
 - **CUDA:** 13.1 (driver 591.59)
 - **User:** Komal-Sch
-- **Access:** AnyDesk v6.x from Mac (keyboard issues with v9 mismatch — use on-screen keyboard workaround)
-- **Conda env:** `dfd` (Python 3.11.9)
-- **GitHub repo cloned:** Yes, at `C:\Users\Komal-Sch\Desktop\deepfake_detection\`
+- **Project root:** `C:\Users\Komal-Sch\Desktop\AV-XAI\`
+- **Conda env:** `df` (Python 3.11)
+- **Jupyter kernel:** `Python (df)`
+- **AnyDesk note:** Keyboard broken on AnyDesk v9/v6 mismatch — use clipboard sync + paste-only workflow
 
-### 8.2 MacBook (Secondary — Code writing, planning)
+### 9.2 MacBook (Secondary — Code writing, git)
+
 - **Machine:** MacBook M2 Pro
-- **OS:** macOS
-- **Role:** Code development, remote access to lab machine
-- **Conda env:** `dfd` (Python 3.11)
+- **Role:** Writing notebooks, git push, planning
+- **Conda env:** `base` (no heavy training done here)
+- **Local clone:** `~/Downloads/AV-XAI/`
 
-### 8.3 Kaggle (Backup training)
-- **GPU:** T4 (16 GB VRAM)
-- **Use:** If lab machine is unavailable; upload preprocessed tensors as Kaggle Dataset
-
-### 8.4 Dependencies (Pinned)
+### 9.3 Key Dependencies (df env, Windows)
 
 ```
-torch==2.3.1 (CUDA 12.1)
-torchvision==0.18.1
-torchaudio==2.3.1
-numpy==1.26.4
-facenet-pytorch==2.6.0 (--no-deps)
-Pillow==10.4.0
-opencv-python==4.10.0.84
-pandas==2.2.2
-scikit-learn==1.5.1
-matplotlib==3.9.2
-tqdm==4.66.5
-ipykernel==6.29.5
-huggingface_hub==0.24.6
-soundfile (added 02 June — needed for audio loading on Windows)
-ffmpeg (conda-forge — needed for audio extraction from mp4)
+torch==2.7.1+cu118
+transformers (for ViViT, WavLM)
+facenet-pytorch (MTCNN)
+av (PyAV — audio/video decode)
+librosa (installed but NOT used for audio — AAC fails on Windows; use PyAV instead)
+huggingface_hub (hf CLI, renamed from huggingface-cli)
+pandas, numpy, tqdm, matplotlib, Pillow
 ```
+
+### 9.4 GitHub
+
+- **Repo:** `https://github.com/AayushSharma1003/AV-XAI` (private)
+- **Windows clone:** `C:\Users\Komal-Sch\Desktop\AV-XAI\`
+- **Mac clone:** `~/Downloads/AV-XAI/`
+- **gitignore:** `data/` (all raw + preprocessed data excluded; only notebooks + CSVs committed)
 
 ---
 
-## 9. Progress Tracker
+## 10. Progress Tracker
 
-### Phase 1: Setup & Preprocessing
+### Phase 0: Pivot & Setup (May – 09 June 2026)
+
+| Task | Status | Date |
+|---|---|---|
+| Old conference paper code completed | ✅ Done | May 2026 |
+| Decision to upgrade to journal scope | ✅ Done | May 2026 |
+| New architecture designed (AV-XAI) | ✅ Done | May 2026 |
+| DFDC access confirmed broken | ✅ Confirmed | 09 June 2026 |
+| Celeb-DF v2 confirmed audio-absent | ✅ Confirmed | 09 June 2026 |
+| LAV-DF approved as final dataset | ✅ Done | 09 June 2026 |
+| Conda env `df` rebuilt for new deps | ✅ Done | 09 June 2026 |
+| GitHub repo `AV-XAI` created | ✅ Done | 09 June 2026 |
+
+### Phase 1: Data (09 – 10 June 2026)
 
 | Task | Status | Date | Notes |
-|------|--------|------|-------|
-| Architecture designed | ✅ Done | May 2026 | Approved by Komal ma'am |
-| Preprocessing pipeline designed | ✅ Done | May 2026 | |
-| LAV-DF dataset downloaded (MacBook) | ✅ Done | May 2026 | ~25.6 GB from HuggingFace |
-| Conda env setup (MacBook) | ✅ Done | May 2026 | |
-| Code files written (DataPrep) | ✅ Done | 31 May 2026 | 9 files + setup.bat |
-| Lab machine access (AnyDesk) | ✅ Done | 31 May 2026 | RTX A6000 confirmed |
-| Lab machine env setup | ✅ Done | 02 June 2026 | setup.bat + manual Miniconda install |
-| LAV-DF download on lab machine | ✅ Done | 02 June 2026 | 48 min download, required tar extraction |
-| Dataset exploration | ✅ Done | 02 June 2026 | 136,304 videos, near-balanced 4-class |
-| Stratified sampling (5K) | ✅ Done | 02 June 2026 | 5,000 videos, proportions maintained |
-| Audio preprocessing | ✅ Done | 02 June 2026 | 5,000/5,000, 0 failures, 15.6 min |
-| Video preprocessing | ✅ Done | 02 June 2026 | 5,000/5,000, 0 failures, 12.4 min |
-| Metadata CSV build | ✅ Done | 02 June 2026 | 5,000 entries, all matched |
-| Dataset verification | ✅ Done | 02 June 2026 | ALL CHECKS PASSED |
+|---|---|---|---|
+| nb01: LAV-DF download + manifest | ✅ Done | 09 June 2026 | 25.6 GB tar, HF gated |
+| Schema investigation (metadata v1) | ✅ Done | 09 June 2026 | No modify_type field; derived from booleans |
+| 30K balanced subsample + CSVs | ✅ Done | 09 June 2026 | 0.0% balance spread |
+| nb02: preprocessing pipeline | ✅ Done | 10 June 2026 | 30,000/30,000, 91 GB output |
+| MTCNN batch-shape bug fixed | ✅ Done | 10 June 2026 | Per-frame mode; 154 clips recovered |
+| Audio AAC fix (PyAV) | ✅ Done | 10 June 2026 | librosa fails on Windows AAC |
 
 ### Phase 2: Model & Training
 
 | Task | Status | Date | Notes |
-|------|--------|------|-------|
-| model.py (full architecture) | ❌ Pending | | Next up |
-| train.py (training loop) | ❌ Pending | | |
-| evaluate.py (metrics + viz) | ❌ Pending | | |
-| Binary classification training | ❌ Pending | | |
-| 4-class classification training | ❌ Pending | | |
-| Ablation experiments | ❌ Pending | | |
-| Grad-CAM++ visualization | ❌ Pending | | |
+|---|---|---|---|
+| nb03: model definition (ViViT + WavLM + fusion) | ❌ Next | | |
+| nb04: training loop | ❌ Pending | | |
+| nb05: adversarial ensemble training | ❌ Pending | | |
+| nb06: evaluation + XAI generation | ❌ Pending | | |
 
 ### Phase 3: Paper
 
-| Task | Status | Date | Notes |
-|------|--------|------|-------|
-| Results tables | ❌ Pending | | |
-| Figures (architecture, Grad-CAM) | ❌ Pending | | |
-| Paper draft | ❌ Pending | | |
-| Venue selection | ❌ Pending | | |
+| Task | Status |
+|---|---|
+| §3.1 Data section draft | ❌ Pending |
+| Results tables | ❌ Pending |
+| Architecture figures | ❌ Pending |
+| Full paper draft | ❌ Pending |
 
 ---
 
-## 10. Key Findings
+## 11. Key Findings
 
-### 10.1 Dataset Observations
-- LAV-DF is near-perfectly balanced for 4-class: each class ~24-27%
-- Binary split is 26.7% Real / 73.3% Fake — natural consequence of 3 fake types, not a dataset flaw
-- Average video duration: 8.60 seconds, total: 325.5 hours
-- All 136,304 videos verified present on disk
+### 11.1 Dataset
 
-### 10.2 Preprocessing Observations
-- Full dataset preprocessing (136K videos) exceeded 400 GB on MacBook — switched to 5K stratified sample
-- Lab machine RTX A6000 (48 GB VRAM) processed 5K videos in 12.4 min — A6000 is dramatically faster than estimated 1-3 hours
-- MTCNN face detection ran at 6.7 videos/sec on A6000 with zero failures
-- Audio preprocessing: T=94 time steps for 3-second audio at hop_length=512
-- torchaudio had zero audio backends on Windows — fixed by switching to ffmpeg subprocess + soundfile
-- float16 storage confirmed working: tensors auto-cast to float32 at DataLoader time
-- Audio file size is negligible (24.7 KB each) vs video (4.59 MB each)
+- LAV-DF v1 metadata has no `modify_type` field — labels must be derived from `modify_video` + `modify_audio` booleans
+- No actor/speaker ID in metadata (filenames are sequential numbers `000001.mp4`) — actor-disjointness is guaranteed by official splits, not verifiable from metadata
+- Full dataset: 136,304 clips, near-perfectly balanced 4-class (24–27% each class)
+- 30K subsample: perfectly balanced (0.0% spread) — all four classes hit 7,500 exactly
 
-### 10.3 Training Results
-- *Pending*
+### 11.2 Preprocessing
 
-### 10.4 Ablation Results
-- *Pending*
+- MTCNN: 100% face detection rate (16/16 frames) on all sampled clips — LAV-DF talking-head clips are ideal for MTCNN
+- MTCNN batch mode causes `inhomogeneous array` crash when multiple faces appear in a frame — single-image mode is required
+- librosa cannot load AAC audio from mp4 on Windows (PySoundFile + audioread both fail) — PyAV decode works correctly
+- 154 clips failed on first pass due to MTCNN batch bug; all 154 recovered with per-frame fix
+- Final: 30,000/30,000 preprocessed, 0 unrecoverable failures
+- Disk: 91 GB total (52.8 GB train / 20.9 GB val / 17.3 GB test)
+
+### 11.3 Training Results
+*Pending*
+
+### 11.4 Ablation Results
+*Pending*
 
 ---
 
-## 11. Issues & Solutions Log
+## 12. Issues & Solutions Log
 
 | # | Date | Issue | Solution | Status |
-|---|------|-------|----------|--------|
-| 1 | May 2026 | Similar paper already published | Senior approved: publish as conference paper | ✅ Resolved |
-| 2 | May 2026 | facenet-pytorch version pin conflicts | Install with --no-deps | ✅ Resolved |
+|---|---|---|---|---|
+| 1 | May 2026 | Similar paper already published | Upgraded to journal scope (AV-XAI) | ✅ Resolved |
+| 2 | May 2026 | facenet-pytorch version conflicts | Install with --no-deps | ✅ Resolved |
 | 3 | May 2026 | numpy 2.x incompatibility | Pin numpy==1.26.4 | ✅ Resolved |
-| 4 | 31 May | Full preprocessing fills 400 GB disk | Stratified sample 5K + float16 storage | ✅ Resolved |
-| 5 | 31 May | AnyDesk v9 keyboard broken (sends Win key) | Downgraded to AnyDesk v6.6.0 on Mac; use on-screen keyboard, toggle Win key off | ✅ Resolved |
-| 6 | 31 May | AnyDesk v6↔v9 version mismatch causes stuck Win key | Toggle Win key on Windows on-screen keyboard to release it | ✅ Resolved |
-| 7 | 31 May | Lab machine has no Python/Conda | setup.bat auto-installs; manual Miniconda download when auto-download failed | ✅ Resolved |
-| 8 | 31 May | TeamViewer LAN mode blocked remote access | Didn't work; sticking with AnyDesk | ❌ Abandoned |
-| 9 | 02 June | HuggingFace 401 — LAV-DF is gated dataset | huggingface-cli login with access token | ✅ Resolved |
-| 10 | 02 June | Dataset downloaded as .tar, not extracted | python tarfile.extractall() — created triple-nested LAV-DF/LAV-DF/LAV-DF path | ✅ Resolved |
-| 11 | 02 June | DATASET_ROOT path wrong after tar extraction | Updated config.py to add extra "LAV-DF" nesting | ✅ Resolved |
-| 12 | 02 June | torchaudio.list_audio_backends() returns [] on Windows | Replaced torchaudio.load() with ffmpeg subprocess + soundfile; added soundfile to deps | ✅ Resolved |
+| 4 | May 2026 | Full preprocessing fills 400 GB disk (conf. phase) | 5K stratified sample + float16 storage | ✅ Resolved |
+| 5 | 31 May | AnyDesk v9 keyboard broken | Clipboard sync + paste-only workflow | ✅ Resolved |
+| 6 | 31 May | Lab machine has no Python/Conda | Manual Miniconda install | ✅ Resolved |
+| 7 | 02 June | torchaudio zero backends on Windows | Switched to ffmpeg subprocess + soundfile (conf. phase) | ✅ Resolved |
+| 8 | 02 June | Triple-nested LAV-DF tar extraction path | Config path updated to add extra nesting | ✅ Resolved |
+| 9 | 09 June | DFDC training data 403 Forbidden (Kaggle) | Pivoted to LAV-DF | ✅ Resolved |
+| 10 | 09 June | Celeb-DF v2 has zero audio streams | Pivoted to LAV-DF | ✅ Resolved |
+| 11 | 09 June | `huggingface-cli` deprecated | Use `hf auth login` instead | ✅ Resolved |
+| 12 | 09 June | HF snapshot_download ignores local_dir (new API) | Use `hf_hub_download` per-file instead | ✅ Resolved |
+| 13 | 09 June | `metadata.min.json` not at repo root (404) | Full dataset is one tar (`LAV-DF.tar`); must download full tar | ✅ Resolved |
+| 14 | 10 June | librosa fails on Windows AAC in mp4 | Replaced with PyAV direct decode | ✅ Resolved |
+| 15 | 10 June | MTCNN batched call crashes on multi-face frames | Switched to per-frame single-image MTCNN calls | ✅ Resolved |
+| 16 | 10 June | Mac behind Windows after separate commits | `git pull origin main --no-rebase` then push | ✅ Resolved |
+| 17 | 10 June | `data/` in .gitignore blocks manifest/splits commit | `git add -f data/manifest.csv data/splits/*.csv` | ✅ Resolved |
 
 ---
 
-## 12. Meeting Notes
+## 13. Session Notes
 
-### 31 May 2026 — Lab Machine Setup
-- Accessed AR/VR lab machine via AnyDesk
-- Confirmed GPU: RTX A6000 (48 GB VRAM), CUDA 13.1
-- VS Code already installed on lab machine
-- Python/Conda NOT installed — setup.bat will handle
-- All DataPrep code files written and ready to transfer
-- Decided to use 5K stratified sample instead of full 136K dataset (storage constraint)
-- TeamViewer attempted but failed (LAN mode); sticking with AnyDesk
+### May 2026 — Conference Paper Phase (Archived)
+- Completed full pipeline: EfficientNet-B0 + VGGish + cross-modal attention on 5K LAV-DF sample
+- Best result: BAcc ~0.71, AUC ~0.90. Video modality dominates; audio near-useless with mel-spectrogram approach.
+- Decision: not strong enough for conference submission. Upgraded to journal scope.
 
-### 02 June 2026 — Full Preprocessing Run
-- Ran entire preprocessing pipeline on lab machine via AnyDesk
-- setup.bat: Miniconda auto-download failed (network), installed manually. Env creation and package install succeeded. All pinned versions verified.
-- download_dataset.py: 25.6 GB downloaded in 48 min. Required tar extraction and config.py path fix (triple-nested folder).
-- explore_dataset.py: 136,304 videos confirmed, near-balanced 4-class distribution.
-- sample_dataset.py: 5,000 videos sampled, stratified across splits and classes.
-- preprocess_audio.py: Initially failed — torchaudio had zero backends on Windows. Fixed by switching to ffmpeg subprocess + soundfile. After fix: 5,000/5,000 processed, 0 failures, 15.6 min.
-- preprocess_video.py: 5,000/5,000 processed, 0 failures, 12.4 min on A6000 (6.7 videos/sec). Way faster than estimated 1-3 hours.
-- build_metadata.py: 5,000 entries, all video+audio tensor pairs matched.
-- dataset.py: ALL CHECKS PASSED. DataLoader verified for both binary and 4-class labels.
-- **Phase 1 is 100% complete. Ready for model.py and train.py.**
+### 09 June 2026 — Journal Phase Kick-off
+- Confirmed DFDC broken (403) and Celeb-DF v2 audio-absent.
+- LAV-DF confirmed as final dataset (audio+video, 4-class labels, prior experience).
+- Rebuilt conda env `df` for new deps (ViViT, WavLM, PyAV).
+- Wrote and ran nb01: downloaded 25.6 GB LAV-DF tar, investigated metadata schema (found no modify_type field — key schema difference from docs), derived 4-class labels from boolean fields, built 30K balanced manifest.
+- Discovered official splits are already actor-disjoint → dropped custom 80/10/10 plan, used official splits for direct baseline comparability.
+
+### 10 June 2026 — Preprocessing Complete
+- Wrote nb02: MTCNN face crops + PyAV audio extraction.
+- Smoke test caught: (a) librosa AAC failure → fixed with PyAV; (b) MTCNN batch mode crash → fixed with per-frame mode.
+- Full 30K run: 29,846 succeeded on first pass; 154 recovered on retry with fixed function.
+- Final: 30,000/30,000 preprocessed, 91 GB output, perfect MTCNN detection rate.
+- Phase 1 (data) 100% complete. Ready for nb03 (model definition).
+
+**Items to address in paper §3.1:**
+- Justify 30K subsample vs full 136K (compute envelope + ablation study needs)
+- Note use of official actor-disjoint splits (cite Cai et al. CVIU 2023)
+- Note 154 clips had multi-face frames (processed with center-crop fallback after per-frame fix)
+- Note librosa/AAC Windows limitation → PyAV used for audio extraction
 
 ---
 
-## 13. References
+## 14. References
 
-- LAV-DF Dataset: https://huggingface.co/datasets/ControlNet/LAV-DF
-- EfficientNet: Tan & Le, ICML 2019
-- VGGish: Hershey et al., ICASSP 2017
+- LAV-DF: Cai et al., "Do Deepfakes Feel Emotions?", CVIU 2023. https://huggingface.co/datasets/ControlNet/LAV-DF
+- ViViT: Arnab et al., "ViViT: A Video Vision Transformer", ICCV 2021
+- WavLM: Chen et al., "WavLM: Large-Scale Self-Supervised Pre-Training for Full Stack Speech Processing", IEEE JSTSP 2022
+- BA-TFD / BA-TFD+: Cai et al., LAV-DF baselines (same paper as dataset)
+- MTCNN: Zhang et al., "Joint Face Detection and Alignment using Multi-task Cascaded CNNs", SPL 2016
 - Grad-CAM++: Chattopadhyay et al., WACV 2018
-- Cross-Modal Transformers: Tsai et al. (MulT), ACL 2019
-
-### 2026-06-09 — Pivot to Celeb-DF v2 (DFDC access blocked)
-
-**Decision:** Pivoted from DFDC to Celeb-DF v2 due to Kaggle CLI access wall (403 Forbidden on competition file downloads — known issue since 2024 affecting all DFDC users). Source: Komal ma'am's Google Drive provided a 2 GB subset; pulled in the full 9.3 GB Celeb-DF v2 already locally available, confirmed alignment with ma'am.
-
-**Dataset stats (final):**
-- Source: Celeb-DF v2 official release (Li et al., CVPR 2020)
-- Total clips: 6,529 (591 Celeb-real, 5,640 Celeb-synthesis, 301 YouTube-real)
-- Test set: 518 clips, taken directly from `List_of_testing_videos.txt` (Celeb-DF's canonical test split). Matches every published Celeb-DF baseline.
-- Train: 5,565 clips (88.1% FAKE / 11.9% REAL)
-- Val: 446 clips (88.8% FAKE / 11.2% REAL)
-- Test: 518 clips (65.6% FAKE / 34.4% REAL)
-- Train/val split: actor-disjoint by SOURCE identity (the face donor for synthesis clips). 54 identities overlap between test and train — this is Celeb-DF's official protocol used by AVTENet, EfficientNet-V2S, and all other reported baselines.
-- Hash seed: 42 (reproducible)
-- Manifest: `data/manifest.csv`, `data/splits/{train,val,test}.csv`
-
-**Justification for source-only hashing on synthesis clips:** The source identity (idN in idN_idM_XXXX.mp4) is the face donor whose identity is most discriminative for face-fake detection. The target identity (idM) provides body/audio context, which is less identity-discriminative. Strict double-hashing (v1 attempt) collapsed val/test to <100 clips each due to the 0.1² probability of both identities landing in the same minority split.
