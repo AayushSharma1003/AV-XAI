@@ -1,0 +1,32 @@
+{
+  "method": "AV-XAI 5-model adversarial ensemble",
+  "members": [
+    "M0_base",
+    "M1_heavy_jpeg",
+    "M2_light_jpeg",
+    "M3_gaussian",
+    "M4_mixed",
+    "AV-XAI Ensemble (M0-M4)"
+  ],
+  "ensemble_metrics_4class": {
+    "Accuracy": 0.7812280701754386,
+    "BalancedAcc": 0.7812280701754386,
+    "AUC_macro_OvR": 0.9380188776033652,
+    "F1_macro": 0.7777056603749388
+  },
+  "ensemble_metrics_binary": {
+    "Accuracy": 0.9771929824561404,
+    "BalancedAcc": 0.9843274853801169,
+    "AUC": 0.9998502923976609,
+    "F1": 0.9845679012345679
+  },
+  "per_member_bacc": {
+    "M0_base": 0.7829824561403509,
+    "M1_heavy_jpeg": 0.7696491228070175,
+    "M2_light_jpeg": 0.7822807017543859,
+    "M3_gaussian": 0.7714035087719298,
+    "M4_mixed": 0.7794736842105263,
+    "AV-XAI Ensemble (M0-M4)": 0.7812280701754386
+  },
+  "delta_bacc_vs_M0": -0.0017543859649122862
+}

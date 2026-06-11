@@ -1,0 +1,4 @@
+Method,BAcc_4c,AUC_4c,BAcc_bin,Note
+BA-TFD,0.8210,0.9010,0.8750,"Cai et al. CVIU 2023, verify exact numbers"
+BA-TFD+,0.8530,0.9270,0.8930,"Cai et al. CVIU 2023, verify exact numbers"
+AV-XAI (ours),0.7830,0.9366,0.9857,"30K balanced subsample, 8 epochs"

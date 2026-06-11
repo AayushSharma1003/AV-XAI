@@ -1,0 +1,5 @@
+Method,Accuracy,BalancedAcc,AUC_macro_OvR,AUC_weighted,F1_macro,F1_weighted,Precision_macro,Recall_macro
+Video-only,0.5093,0.5093,0.7620,0.7620,0.4668,0.4668,0.4924,0.5093
+Audio-only,0.7844,0.7844,0.9354,0.9354,0.7802,0.7802,0.7818,0.7844
+Fused (feature-level),0.7849,0.7849,0.9384,0.9384,0.7822,0.7822,0.7801,0.7849
+Ensemble (full),0.7830,0.7830,0.9366,0.9366,0.7803,0.7803,0.7784,0.7830

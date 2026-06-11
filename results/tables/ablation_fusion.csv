@@ -1,0 +1,4 @@
+Method,Accuracy,BalancedAcc,AUC_macro_OvR,AUC_weighted,F1_macro,F1_weighted,Precision_macro,Recall_macro
+Feature-level only (fused logits),0.7849,0.7849,0.9384,0.9384,0.7822,0.7822,0.7801,0.7849
+Decision-level only (V+A vote),0.7740,0.7740,0.9295,0.9295,0.7699,0.7699,0.7688,0.7740
+Hierarchical (all 3 levels),0.7830,0.7830,0.9366,0.9366,0.7803,0.7803,0.7784,0.7830

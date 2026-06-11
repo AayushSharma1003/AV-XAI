@@ -1,0 +1,30 @@
+{
+  "checkpoint": "C:\\Users\\Komal-Sch\\Desktop\\AV-XAI\\checkpoints\\best.pt",
+  "checkpoint_epoch": 8,
+  "val_bacc_at_save": 0.7773913043478261,
+  "test_set_size": 5700,
+  "test_4class": {
+    "accuracy": 0.7829824561403509,
+    "balanced_acc": 0.7829824561403509,
+    "auc_macro": 0.936634123319996,
+    "f1_macro": 0.7803464065431087
+  },
+  "test_binary_derived": {
+    "accuracy": 0.980701754385965,
+    "balanced_acc": 0.9857309941520468,
+    "auc": 0.9998652303272803,
+    "f1": 0.9869853289162328
+  },
+  "test_binary_dedicated_head": {
+    "accuracy": 0.5842105263157895,
+    "balanced_acc": 0.6453801169590643,
+    "auc": 0.6952841284497795,
+    "f1": 0.653610055539316
+  },
+  "modality_ablation_bacc": {
+    "Video-only": 0.509298245614035,
+    "Audio-only": 0.7843859649122806,
+    "Fused (feature-level)": 0.7849122807017543,
+    "Ensemble (full)": 0.7829824561403509
+  }
+}

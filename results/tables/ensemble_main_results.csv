@@ -1,0 +1,3 @@
+Method,Accuracy,BalancedAcc,AUC_macro_OvR,AUC_weighted,F1_macro,F1_weighted,Precision_macro,Recall_macro
+AV-XAI M0 base only,0.7830,0.7830,0.9366,0.9366,0.7803,0.7803,0.7784,0.7830
+AV-XAI Ensemble,0.7812,0.7812,0.9380,0.9380,0.7777,0.7777,0.7778,0.7812

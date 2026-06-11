@@ -1,0 +1,5 @@
+Class,Precision,Recall,F1,Support
+real,0.9175,0.9986,0.9563,1425
+visual_modified,0.9885,0.9614,0.9747,1425
+audio_modified,0.5885,0.6442,0.6151,1425
+both_modified,0.6168,0.5207,0.5647,1425
