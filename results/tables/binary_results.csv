@@ -1,0 +1,3 @@
+Method,Accuracy,BalancedAcc,AUC,F1,Precision,Recall
+AV-XAI (binary head),0.5842,0.6454,0.6953,0.6536,0.8711,0.5230
+AV-XAI (4-class derived),0.9807,0.9857,0.9999,0.9870,0.9986,0.9757
