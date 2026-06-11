@@ -1,0 +1,5 @@
+Method,BAcc_4c,AUC_4c,BAcc_bin,Note
+BA-TFD,0.8210,0.9010,0.8750,verify against paper
+BA-TFD+,0.8530,0.9270,0.8930,verify against paper
+AV-XAI M0 only,0.7830,0.9366,0.9857,single model
+AV-XAI Ensemble,0.7812,0.9380,0.9843,5-model ensemble
